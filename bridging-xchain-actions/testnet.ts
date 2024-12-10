@@ -1,20 +1,25 @@
-// fetching enabled routes for testnets from across api
-
-import { Abi, Address, erc20Abi, getContract, parseEther } from "viem";
-import { approveTokenSpending, getWalletClient, getSuggestedFeeQuote, initDeposit, subscribeToContractEvent } from "../libs/utils";
-import { ORIGIN_CHAIN_TESTNET, DESTINATION_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC, owner, DESTINATION_CHAIN_TESTNET_RPC, SPOKE_POOL_ADDRESS } from "../libs/config";
+import { Abi, Address, parseEther } from "viem";
+import { erc20Abi, getContract, Hex } from "viem";
+import { ACROSS_API_BASE_URL_TESTNET, DESTINATION_CHAIN_TESTNET_2, ORIGIN_CHAIN_TESTNET_RPC, owner, WRAPPED_NATIVE_TOKEN_ADDRESS, DESTINATION_CHAIN_TESTNET_2_RPC, MULTICALL_HANDLER_ADDRESS, SPOKE_POOL_ADDRESS } from "../libs/config";
+import { ORIGIN_CHAIN_TESTNET } from "../libs/config";
+import { approveTokenSpending, createMessageForMulticallHandler, getSuggestedFeeQuote, getWalletClient, initDepositV3, subscribeToContractEvent } from "../libs/utils";
 import { spokePoolAbi } from "../abis/spokePoolAbi";
 import { FilledV3RelayEventArgs, V3FundsDepositedEventArgs } from "../libs/types";
 
-const baseUrl = 'https://testnet.across.to/api';
+const acrossBaseUrl = ACROSS_API_BASE_URL_TESTNET;
 const originChainId = ORIGIN_CHAIN_TESTNET.id;
-const inputToken = '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14';
-const destinationChainId = DESTINATION_CHAIN_TESTNET.id;
-const outputToken = '0x4200000000000000000000000000000000000006';
+const inputToken = WRAPPED_NATIVE_TOKEN_ADDRESS[originChainId];
+const destinationChainId = DESTINATION_CHAIN_TESTNET_2.id;
+const outputToken = WRAPPED_NATIVE_TOKEN_ADDRESS[destinationChainId];
+const receiverAddress = owner.address;
 const amount = parseEther('0.00001');
 
+
 (async () => {
+  const message = await createMessageForMulticallHandler(receiverAddress, amount, outputToken, 18) as Hex;
+  
   const originWalletClient = getWalletClient(ORIGIN_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC);
+  const multicallHandlerAddress = MULTICALL_HANDLER_ADDRESS[originChainId];
 
   const wethContract = getContract({
     address: inputToken,
@@ -25,12 +30,14 @@ const amount = parseEther('0.00001');
   console.log('wethBalance:', wethBalance);
 
   const suggestedFeeQuote = await getSuggestedFeeQuote({
-    acrossBaseUrl: baseUrl,
+    acrossBaseUrl,
     originChainId,
     destinationChainId,
     amount,
+    message,
     inputToken,
     outputToken,
+    recipient: multicallHandlerAddress,
   });
   console.log('suggestedFeeQuote:', suggestedFeeQuote);
 
@@ -54,18 +61,21 @@ const amount = parseEther('0.00001');
     throw new Error('destinationSpokePoolAddress is not set');
   }
   const filledV3RelayEventPromise = subscribeToContractEvent<FilledV3RelayEventArgs>(
-    DESTINATION_CHAIN_TESTNET,
-    DESTINATION_CHAIN_TESTNET_RPC,
+    DESTINATION_CHAIN_TESTNET_2,
+    DESTINATION_CHAIN_TESTNET_2_RPC,
     destinationSpokePoolAddress,
     spokePoolAbi as Abi,
     'FilledV3Relay',
   );
 
-  await initDeposit({
+  await initDepositV3({
     suggestedFeeQuote,
     destinationChainId,
     inputToken,
+    inputAmount: amount,
     outputToken,
+    recipient: multicallHandlerAddress,
+    message,
     async requestTokenApprovalFunc(tokenAddress, spender, amount) {
       await approveTokenSpending(ORIGIN_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC, tokenAddress, spender, amount);
     },
@@ -77,8 +87,6 @@ const amount = parseEther('0.00001');
       });
     },
   });
-
-  console.log('Waiting for deposit & filled events...');
 
   const depositData = await v3DepositEventPromise;
   console.log('depositData:', depositData);

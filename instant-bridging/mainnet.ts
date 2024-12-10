@@ -1,10 +1,10 @@
 import { Abi, parseUnits } from "viem";
-import { DESTINATION_CHAIN_MAINNET, ORIGIN_CHAIN_MAINNET, ORIGIN_CHAIN_RPC, } from "../libs/config";
-import { poolDepositStatusFromAcrossApi, getWalletClient, getSuggestedFeeQuote, initDeposit, wrapNativeToken, approveTokenSpending, subscribeToContractEvent } from "../libs/utils";
+import { ACROSS_API_BASE_URL, DESTINATION_CHAIN_MAINNET, ORIGIN_CHAIN_MAINNET, ORIGIN_CHAIN_RPC, } from "../libs/config";
+import { poolDepositStatusFromAcrossApi, getWalletClient, getSuggestedFeeQuote, initDepositV3, wrapNativeToken, approveTokenSpending, subscribeToContractEvent } from "../libs/utils";
 import { V3FundsDepositedEventArgs } from "../libs/types";
 import { spokePoolAbi } from "../abis/spokePoolAbi";
 
-const acrossBaseUrl = 'https://app.across.to/api';
+const acrossBaseUrl = ACROSS_API_BASE_URL;
 const originChainId = ORIGIN_CHAIN_MAINNET.id;
 const destinationChainId = DESTINATION_CHAIN_MAINNET.id;
 const inputToken = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
@@ -39,7 +39,7 @@ const outputToken = '0x4200000000000000000000000000000000000006';
   // 2. using destination chain event listener
 
   // initiate deposit
-  await initDeposit({
+  await initDepositV3({
     suggestedFeeQuote,
     destinationChainId,
     inputToken,

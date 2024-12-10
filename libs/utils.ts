@@ -1,7 +1,8 @@
-import { Abi, Address, Chain, createWalletClient, encodeFunctionData, erc20Abi, getContract, Hex, http, Log, parseAbi, publicActions, zeroAddress } from "viem";
+import { Abi, Address, Chain, createWalletClient, encodeAbiParameters, encodeFunctionData, erc20Abi, getContract, Hex, http, Log, parseAbi, parseUnits, publicActions, zeroAddress } from "viem";
 import { DepositStatusData, SuggestedFeeQuote } from "./types";
-import { owner } from "./config";
+import { owner, W3P_TOKEN_ADDRESS } from "./config";
 import { waitForTransactionReceipt } from "viem/actions";
+import { ethers } from "ethers";
 
 export function getWalletClient(chain: Chain, rpc: string) {
   return createWalletClient({
@@ -34,6 +35,7 @@ export async function wrapNativeToken(chain: Chain, rpc: string, address: Addres
   return depositTxReceipt.transactionHash;
 }
 
+// get the suggested fee quote for the deposit from the Across API
 export async function getSuggestedFeeQuote(params: {
   acrossBaseUrl: string,
   originChainId: number,
@@ -42,9 +44,12 @@ export async function getSuggestedFeeQuote(params: {
   outputToken?: string,
   inputToken?: string,
   token?: Address
+  recipient?: Address
+  message?: Hex
 }): Promise<SuggestedFeeQuote> {
-  const { acrossBaseUrl, originChainId, destinationChainId, amount, outputToken, inputToken, token } = params;
+  const { acrossBaseUrl, originChainId, destinationChainId, amount, outputToken, inputToken, token, recipient, message } = params;
   const quoteSuggestedFeeUrl = new URL(`${acrossBaseUrl}/suggested-fees`);
+  quoteSuggestedFeeUrl.searchParams.set('skipAmountLimit', 'true'); // skip amount limit check
   quoteSuggestedFeeUrl.searchParams.set('originChainId', originChainId.toString());
   quoteSuggestedFeeUrl.searchParams.set('destinationChainId', destinationChainId.toString());
   quoteSuggestedFeeUrl.searchParams.set('amount', amount.toString());
@@ -56,6 +61,14 @@ export async function getSuggestedFeeQuote(params: {
     quoteSuggestedFeeUrl.searchParams.set('outputToken', outputToken);
   } else {
     throw new Error('Either token or inputToken and outputToken must be provided');
+  }
+
+  if (recipient) {
+    quoteSuggestedFeeUrl.searchParams.set('recipient', recipient);
+  }
+
+  if (message) {
+    quoteSuggestedFeeUrl.searchParams.set('message', message);
   }
 
   const resp = await fetch(quoteSuggestedFeeUrl.toString());
@@ -78,26 +91,31 @@ export async function approveTokenSpending(chain: Chain, rpc: string, tokenAddre
   });
 }
 
-export async function initDeposit(params: {
+// initiate deposit to the spoke pool on the origin chain
+export async function initDepositV3(params: {
   suggestedFeeQuote: SuggestedFeeQuote;
   destinationChainId: number;
   inputToken: Address;
+  inputAmount?: bigint;
   outputToken?: Address;
+  outputAmount?: bigint;
+  recipient?: Address;
+  message?: Hex;
 
   requestTokenApprovalFunc: (tokenAddress: Address, spender: Address, amount: bigint) => Promise<void>;
   sendTransactionFunc: (from: Address, to: Address, data: Hex) => Promise<string>;
 }) {
   const { suggestedFeeQuote, destinationChainId, inputToken, outputToken: _outputToken, requestTokenApprovalFunc, sendTransactionFunc } = params;
   const depositor = owner.address;
-  const recipient = owner.address;
+  const recipient = params.recipient || owner.address;
   // The 0 address is resolved automatically to the equivalent supported
   // token on the the destination chain. Any other input/output token
   // combination should be advertised by the Across API available-routes
   // endpoint.
   const outputToken = _outputToken || zeroAddress;
 
-  const inputAmount = BigInt(suggestedFeeQuote.totalRelayFee.total);
-  const outputAmount = inputAmount;
+  const inputAmount = params.inputAmount || BigInt(suggestedFeeQuote.totalRelayFee.total);
+  const outputAmount = params.outputAmount || inputAmount;
   const fillDeadlineBuffer = 18_000; // 5hrs
   const fillDeadline = Math.round(Date.now() / 1000) + fillDeadlineBuffer;
 
@@ -108,7 +126,7 @@ export async function initDeposit(params: {
   const exclusiveRelayer = suggestedFeeQuote.exclusiveRelayer;
 
   // No message will be executed post-fill on the destination chain.
-  const message = "0x";
+  const message = params.message || "0x";
 
   // approve the spoke pool to spend the USDC
   await requestTokenApprovalFunc(inputToken, suggestedFeeQuote.spokePoolAddress, inputAmount);
@@ -125,6 +143,7 @@ export async function initDeposit(params: {
   console.log(`depositTxHash: ${depositTxHash}`);
 }
 
+// subscribe to contract event and return the event args from the onLogs callback
 export async function subscribeToContractEvent<T>(chain: Chain, rpc: string, contractAddress: Address, abi: Abi, eventName: string): Promise<T> {
   const walletClient = getWalletClient(chain, rpc);
   return new Promise((resolve, reject) => {
@@ -134,7 +153,6 @@ export async function subscribeToContractEvent<T>(chain: Chain, rpc: string, con
       eventName,
       poll: true,
       onLogs: (logs: (Log & { args?: T })[]) => {
-        console.log('logs:', logs);
         unwatch();
         resolve(logs[0].args as T);
       },
@@ -182,4 +200,121 @@ export async function poolDepositStatusFromAcrossApi(baseUrl: string, originChai
   
     }, 2_000);
   });
+}
+
+// create message which includes the set of actions to be executed on the destination chain via multicall handler
+export async function createMessageForMulticallHandler(
+  recipient: Address,
+  amount: bigint,
+  outputToken: Address,
+  tokenDecimals?: number,
+) {
+  const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+
+  const mintCalldata = encodeFunctionData({
+    abi: parseAbi(['function mint(address to, uint256 amount)']),
+    functionName: 'mint',
+    args: [recipient, parseUnits('10', 6)],
+  });
+
+  // return encodeAbiParameters(
+  //   [
+  //     {
+  //       // Define the complex tuple type
+  //       type: 'tuple',
+  //       components: [
+  //         {
+  //           // Inner array of action tuples
+  //           type: 'tuple[]',
+  //           components: [
+  //             { type: 'address', name: 'target' },
+  //             { type: 'bytes', name: 'callData' },
+  //             { type: 'uint256', name: 'value' }
+  //           ]
+  //         },
+  //         { type: 'address', name: 'fallbackRecipient' }
+  //       ]
+  //     }
+  //   ],
+  //   [
+  //     [
+  //       [
+  //         {
+  //           target: W3P_TOKEN_ADDRESS,
+  //           callData: mintCalldata,
+  //           value: 0n
+  //         }
+  //       ],
+  //       '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
+  //     ]
+  //   ]
+  // );
+
+  // Encode the Instructions object
+  return abiCoder.encode(
+    [
+      "tuple(" +
+        "tuple(" +
+          "address target," +
+          "bytes callData," +
+          "uint256 value" +
+        ")[]," +
+        "address fallbackRecipient" +
+      ")"
+    ],
+    [
+      [
+        [
+          [W3P_TOKEN_ADDRESS, mintCalldata, 0],
+        ],
+        '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
+      ]
+    ]
+  );
+
+  // const oneEther = parseUnits('1', tokenDecimals || 18);
+  // const feeAmount = amount * (10n / oneEther);
+  // const outputAmountPostFees = amount - feeAmount;
+
+  // const userTransferCallData = encodeFunctionData({
+  //   abi: parseAbi(['function transfer(address to, uint256 amount)']),
+  //   functionName: 'transfer',
+  //   args: [userAddress, outputAmountPostFees],
+  // });
+
+  // const feeTransferCallData = encodeFunctionData({
+  //   abi: parseAbi(['function transfer(address to, uint256 amount)']),
+  //   functionName: 'transfer',
+  //   args: [userAddress, feeAmount],
+  // });
+
+  // return encodeAbiParameters(
+  //   [
+  //     {
+  //       components: [
+  //         {
+  //           name: 'target',
+  //           type: 'address',
+  //         },
+  //         {
+  //           name: 'callData',
+  //           type: 'bytes',
+  //         },
+  //         {
+  //           name: 'value',
+  //           type: 'uint256',
+  //         },
+  //       ],
+  //       type: 'tuple[]',
+  //     },
+  //     { type: 'address', name: 'fallbackRecipient' },
+  //   ],
+  //   [
+  //     [
+  //       { target: outputToken, callData: userTransferCallData, value: 0n },
+  //       { target: outputToken, callData: feeTransferCallData, value: 0n },
+  //     ],
+  //     userAddress
+  //   ]
+  // )
 }
