@@ -1,9 +1,10 @@
-import { Abi, Address, Chain, createWalletClient, encodeAbiParameters, encodeFunctionData, erc20Abi, getContract, Hex, http, Log, parseAbi, parseUnits, publicActions, zeroAddress } from "viem";
+import { Abi, Address, Chain, Client, createWalletClient, encodeAbiParameters, encodeFunctionData, erc20Abi, getContract, Hex, http, Log, parseAbi, parseUnits, publicActions, Transport, zeroAddress } from "viem";
 import { DepositStatusData, SuggestedFeeQuote } from "./types";
 import { owner, W3P_TOKEN_ADDRESS } from "./config";
 import { waitForTransactionReceipt } from "viem/actions";
+import { PublicActions } from "viem";
 
-export function getWalletClient(chain: Chain, rpc: string) {
+export function getWalletClient(chain: Chain, rpc: string): ReturnType<typeof createWalletClient> & PublicActions {
   return createWalletClient({
     account: owner,
     transport: http(rpc),
@@ -11,7 +12,7 @@ export function getWalletClient(chain: Chain, rpc: string) {
   }).extend(publicActions);
 }
 
-export async function wrapNativeToken(chain: Chain, rpc: string, address: Address, amount: bigint) {
+export async function wrapNativeToken(chain: Chain, rpc: string, wethContractAddress: Address, amount: bigint) {
   const data = encodeFunctionData({
     abi: parseAbi(['function deposit()']),
     functionName: "deposit",
@@ -19,11 +20,15 @@ export async function wrapNativeToken(chain: Chain, rpc: string, address: Addres
 
 
   const walletClient = getWalletClient(chain, rpc);
+  if (!walletClient.account) {
+    throw new Error('wallet client account is undefined');
+  }
   const txHash = await walletClient.sendTransaction({
     account: walletClient.account,
-    to: address,
+    to: wethContractAddress,
     data,
     value: amount,
+    chain: chain,
   });
 
   const depositTxReceipt = await waitForTransactionReceipt(walletClient, { hash: txHash });
@@ -76,13 +81,20 @@ export async function getSuggestedFeeQuote(params: {
 
 export async function approveTokenSpending(chain: Chain, rpc: string, tokenAddress: Address, spender: Address, amount: bigint) {
   const walletClient = getWalletClient(chain, rpc);
+
+  if (!walletClient.account) {
+    throw new Error('wallet client account is undefined');
+  }
+
   const txHash = await walletClient.sendTransaction({
+    account: walletClient.account,
     to: tokenAddress,
     data: encodeFunctionData({
       abi: erc20Abi,
       functionName: 'approve',
       args: [spender, amount],
     }),
+    chain,
   });
 
   await waitForTransactionReceipt(walletClient, {

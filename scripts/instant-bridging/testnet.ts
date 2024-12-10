@@ -2,15 +2,15 @@
 
 import { Abi, Address, erc20Abi, getContract, parseEther } from "viem";
 import { approveTokenSpending, getWalletClient, getSuggestedFeeQuote, initDepositV3, subscribeToContractEvent } from "../libs/utils";
-import { ORIGIN_CHAIN_TESTNET, DESTINATION_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC, owner, DESTINATION_CHAIN_TESTNET_RPC, SPOKE_POOL_ADDRESS, ACROSS_API_BASE_URL_TESTNET } from "../libs/config";
+import { ORIGIN_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC, owner, SPOKE_POOL_ADDRESS, ACROSS_API_BASE_URL_TESTNET, DESTINATION_CHAIN_TESTNET_2, DESTINATION_CHAIN_TESTNET_2_RPC, WRAPPED_NATIVE_TOKEN_ADDRESS } from "../libs/config";
 import { spokePoolAbi } from "../abis/spokePoolAbi";
 import { FilledV3RelayEventArgs, V3FundsDepositedEventArgs } from "../libs/types";
 
 const acrossBaseUrl = ACROSS_API_BASE_URL_TESTNET;
 const originChainId = ORIGIN_CHAIN_TESTNET.id;
-const inputToken = '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14';
-const destinationChainId = DESTINATION_CHAIN_TESTNET.id;
-const outputToken = '0x4200000000000000000000000000000000000006';
+const inputToken = WRAPPED_NATIVE_TOKEN_ADDRESS[originChainId];
+const destinationChainId = DESTINATION_CHAIN_TESTNET_2.id;
+const outputToken = WRAPPED_NATIVE_TOKEN_ADDRESS[destinationChainId];
 const amount = parseEther('0.00001');
 
 (async () => {
@@ -54,8 +54,8 @@ const amount = parseEther('0.00001');
     throw new Error('destinationSpokePoolAddress is not set');
   }
   const filledV3RelayEventPromise = subscribeToContractEvent<FilledV3RelayEventArgs>(
-    DESTINATION_CHAIN_TESTNET,
-    DESTINATION_CHAIN_TESTNET_RPC,
+    DESTINATION_CHAIN_TESTNET_2,
+    DESTINATION_CHAIN_TESTNET_2_RPC,
     destinationSpokePoolAddress,
     spokePoolAbi as Abi,
     'FilledV3Relay',
@@ -71,9 +71,11 @@ const amount = parseEther('0.00001');
     },
     sendTransactionFunc: async (from, to, data) => {
       return await originWalletClient.sendTransaction({
+        account: originWalletClient.account!,
         from,
         to,
         data,
+        chain: ORIGIN_CHAIN_TESTNET,
       });
     },
   });

@@ -81,9 +81,11 @@ const amount = parseEther('0.00001');
     },
     sendTransactionFunc: async (from, to, data) => {
       return await originWalletClient.sendTransaction({
+        account: originWalletClient.account!,
         from,
         to,
         data,
+        chain: ORIGIN_CHAIN_TESTNET,
       });
     },
   });

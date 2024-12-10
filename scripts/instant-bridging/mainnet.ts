@@ -1,4 +1,4 @@
-import { Abi, parseUnits } from "viem";
+import { Abi, Chain, Client, PublicActions, Transport, WalletActions, parseUnits } from "viem";
 import { ACROSS_API_BASE_URL, DESTINATION_CHAIN_MAINNET, ORIGIN_CHAIN_MAINNET, ORIGIN_CHAIN_RPC, } from "../libs/config";
 import { poolDepositStatusFromAcrossApi, getWalletClient, getSuggestedFeeQuote, initDepositV3, wrapNativeToken, approveTokenSpending, subscribeToContractEvent } from "../libs/utils";
 import { V3FundsDepositedEventArgs } from "../libs/types";
@@ -51,6 +51,8 @@ const outputToken = '0x4200000000000000000000000000000000000006';
         from,
         to,
         data,
+        chain: ORIGIN_CHAIN_MAINNET,
+        account: originWalletClient.account!,
       });
     },
   });
