@@ -2,7 +2,6 @@ import { Abi, Address, Chain, createWalletClient, encodeAbiParameters, encodeFun
 import { DepositStatusData, SuggestedFeeQuote } from "./types";
 import { owner, W3P_TOKEN_ADDRESS } from "./config";
 import { waitForTransactionReceipt } from "viem/actions";
-import { ethers } from "ethers";
 
 export function getWalletClient(chain: Chain, rpc: string) {
   return createWalletClient({
@@ -209,112 +208,42 @@ export async function createMessageForMulticallHandler(
   outputToken: Address,
   tokenDecimals?: number,
 ) {
-  const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-
   const mintCalldata = encodeFunctionData({
     abi: parseAbi(['function mint(address to, uint256 amount)']),
     functionName: 'mint',
     args: [recipient, parseUnits('10', 6)],
   });
 
-  // return encodeAbiParameters(
-  //   [
-  //     {
-  //       // Define the complex tuple type
-  //       type: 'tuple',
-  //       components: [
-  //         {
-  //           // Inner array of action tuples
-  //           type: 'tuple[]',
-  //           components: [
-  //             { type: 'address', name: 'target' },
-  //             { type: 'bytes', name: 'callData' },
-  //             { type: 'uint256', name: 'value' }
-  //           ]
-  //         },
-  //         { type: 'address', name: 'fallbackRecipient' }
-  //       ]
-  //     }
-  //   ],
-  //   [
-  //     [
-  //       [
-  //         {
-  //           target: W3P_TOKEN_ADDRESS,
-  //           callData: mintCalldata,
-  //           value: 0n
-  //         }
-  //       ],
-  //       '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
-  //     ]
-  //   ]
-  // );
-
-  // Encode the Instructions object
-  return abiCoder.encode(
+  return encodeAbiParameters(
     [
-      "tuple(" +
-        "tuple(" +
-          "address target," +
-          "bytes callData," +
-          "uint256 value" +
-        ")[]," +
-        "address fallbackRecipient" +
-      ")"
+      {
+        // Define the complex tuple type
+        type: 'tuple',
+        components: [
+          {
+            // Inner array of action tuples
+            type: 'tuple[]',
+            components: [
+              { type: 'address', name: 'target' },
+              { type: 'bytes', name: 'callData' },
+              { type: 'uint256', name: 'value' }
+            ]
+          },
+          { type: 'address', name: 'fallbackRecipient' }
+        ]
+      }
     ],
     [
       [
         [
-          [W3P_TOKEN_ADDRESS, mintCalldata, 0],
+          {
+            target: W3P_TOKEN_ADDRESS,
+            callData: mintCalldata, 
+            value: 0n
+          }
         ],
         '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
       ]
     ]
   );
-
-  // const oneEther = parseUnits('1', tokenDecimals || 18);
-  // const feeAmount = amount * (10n / oneEther);
-  // const outputAmountPostFees = amount - feeAmount;
-
-  // const userTransferCallData = encodeFunctionData({
-  //   abi: parseAbi(['function transfer(address to, uint256 amount)']),
-  //   functionName: 'transfer',
-  //   args: [userAddress, outputAmountPostFees],
-  // });
-
-  // const feeTransferCallData = encodeFunctionData({
-  //   abi: parseAbi(['function transfer(address to, uint256 amount)']),
-  //   functionName: 'transfer',
-  //   args: [userAddress, feeAmount],
-  // });
-
-  // return encodeAbiParameters(
-  //   [
-  //     {
-  //       components: [
-  //         {
-  //           name: 'target',
-  //           type: 'address',
-  //         },
-  //         {
-  //           name: 'callData',
-  //           type: 'bytes',
-  //         },
-  //         {
-  //           name: 'value',
-  //           type: 'uint256',
-  //         },
-  //       ],
-  //       type: 'tuple[]',
-  //     },
-  //     { type: 'address', name: 'fallbackRecipient' },
-  //   ],
-  //   [
-  //     [
-  //       { target: outputToken, callData: userTransferCallData, value: 0n },
-  //       { target: outputToken, callData: feeTransferCallData, value: 0n },
-  //     ],
-  //     userAddress
-  //   ]
-  // )
 }
