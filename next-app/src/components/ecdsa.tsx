@@ -1,12 +1,26 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { toKernelSmartAccount } from "permissionless/accounts";
-import { ACROSS_API_BASE_URL_TESTNET, DESTINATION_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC, owner, WRAPPED_NATIVE_TOKEN_ADDRESS } from "@/libs/config";
-import { ORIGIN_CHAIN_TESTNET } from "@/libs/config";
-import { createTokenApprovalCall, getSmartAccountClient, getSuggestedFeeQuote, getWalletClient, getWrappedNativeTokenBalance, initDepositV3, initEventSubscriptions } from "@/libs/utils";
-import { SmartAccount } from "viem/account-abstraction";
-import { Address, Hex, parseEther } from "viem";
+import {
+  ACROSS_API_BASE_URL_TESTNET,
+  DESTINATION_CHAIN_TESTNET,
+  ORIGIN_CHAIN_TESTNET,
+  ORIGIN_CHAIN_TESTNET_RPC,
+  owner,
+  WRAPPED_NATIVE_TOKEN_ADDRESS,
+} from '@/libs/config';
+import {
+  createTokenApprovalCall,
+  getSmartAccountClient,
+  getSuggestedFeeQuote,
+  getWalletClient,
+  getWrappedNativeTokenBalance,
+  initDepositV3,
+  initEventSubscriptions,
+} from '@/libs/utils';
+import { toKernelSmartAccount, toNexusSmartAccount } from 'permissionless/accounts';
+import { useState } from 'react';
+import { Address, Hex, parseEther } from 'viem';
+import { SmartAccount } from 'viem/account-abstraction';
 
 export default function Ecdsa() {
   const [loading, setLoading] = useState(false);
@@ -52,11 +66,15 @@ export default function Ecdsa() {
         sendTransactionFunc: async (from: Address, to: Address, data: Hex) => {
           const accountClient = getSmartAccountClient(account, ORIGIN_CHAIN_TESTNET);
           // create spending approval calldata
-          const tokenApprovalCall = createTokenApprovalCall(WRAPPED_NATIVE_TOKEN_ADDRESS[ORIGIN_CHAIN_TESTNET.id], suggestedFeeQuote.spokePoolAddress, amount);
+          const tokenApprovalCall = createTokenApprovalCall(
+            WRAPPED_NATIVE_TOKEN_ADDRESS[ORIGIN_CHAIN_TESTNET.id],
+            suggestedFeeQuote.spokePoolAddress,
+            amount
+          );
           const depositV3Call = { to, data };
 
           return await accountClient.sendUserOperation({
-              callData: await account.encodeCalls([tokenApprovalCall, depositV3Call]),
+            callData: await account.encodeCalls([tokenApprovalCall, depositV3Call]),
           });
         },
       });
@@ -69,60 +87,68 @@ export default function Ecdsa() {
       console.log('filledV3RelayEvent:', filledV3RelayEvent);
     } catch (e) {
       console.error(e);
-      setError("Unknown error");
+      setError('Unknown error');
     } finally {
       setLoading(false);
     }
   }
 
   async function crossChainActionsExecution() {
-    console.log("crossChainActionsExecution");
+    console.log('crossChainActionsExecution');
   }
 
-  useEffect(() => {
+  const setupAccount = async (provider: 'kernel' | 'biconomy') => {
     if (account || loading) {
       return;
     }
     setLoading(true);
 
-    (async () => {
-      try {
-        const client = getWalletClient(
-          ORIGIN_CHAIN_TESTNET,
-          ORIGIN_CHAIN_TESTNET_RPC
-        );
+    try {
+      const client = getWalletClient(ORIGIN_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC);
+      if (provider === 'kernel') {
         const account = await toKernelSmartAccount({
           client,
           owners: [owner],
         });
-        console.log(account);
         setAccount(account);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
-      } finally {
-        setLoading(false);
+      } else if (provider === 'biconomy') {
+        const account = await toNexusSmartAccount({
+          client,
+          owners: [owner],
+          version: '1.0.0',
+        });
+        setAccount(account);
       }
-    })();
-  }, [account]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex gap-4">
+        {!account && (
+          <>
+            <button className="bg-blue-500 text-sm font-bold text-white px-4 py-2 rounded-md" onClick={() => setupAccount('kernel')}>
+              Kernel
+            </button>
+            <button className="bg-blue-500 text-sm font-bold text-white px-4 py-2 rounded-md" onClick={() => setupAccount('biconomy')}>
+              Biconomy
+            </button>
+          </>
+        )}
+      </div>
+
       {account && (
         <>
-          <div className="text-sm bg-green-500 font-bold text-white px-4 py-2 rounded-md">
-            Account: {account.address}
-          </div>
+          <div className="text-sm bg-green-500 font-bold text-white px-4 py-2 rounded-md">Account: {account.address}</div>
           <div className="flex gap-4">
-            <button
-              className="bg-blue-500 text-sm font-bold text-white px-4 py-2 rounded-md"
-              onClick={crossChainLiquidityTransfer}
-            >
+            <button className="bg-blue-500 text-sm font-bold text-white px-4 py-2 rounded-md" onClick={crossChainLiquidityTransfer}>
               Cross-chain liquidity transfer
             </button>
-            <button
-              className="bg-blue-500 text-sm font-bold text-white px-4 py-2 rounded-md"
-              onClick={crossChainActionsExecution}
-            >
+            <button className="bg-blue-500 text-sm font-bold text-white px-4 py-2 rounded-md" onClick={crossChainActionsExecution}>
               Cross-chain actions execution
             </button>
           </div>
@@ -131,9 +157,7 @@ export default function Ecdsa() {
       {error && <div className="text-red-500">{error}</div>}
       {loading && (
         <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
-          <div className="text-sm font-bold text-white px-4 py-2 rounded-md">
-            Loading...
-          </div>
+          <div className="text-sm font-bold text-white px-4 py-2 rounded-md">Loading...</div>
         </div>
       )}
     </div>
