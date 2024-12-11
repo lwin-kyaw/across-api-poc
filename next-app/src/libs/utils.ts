@@ -185,10 +185,11 @@ export async function getSuggestedFeeQuote(params: {
 
 // initiate deposit to the spoke pool on the origin chain
 export async function initDepositV3(params: {
+  depositor: Address;
   suggestedFeeQuote: SuggestedFeeQuote;
   destinationChainId: number;
   inputToken: Address;
-  inputAmount?: bigint;
+  inputAmount: bigint;
   outputToken?: Address;
   outputAmount?: bigint;
   recipient?: Address;
@@ -206,17 +207,16 @@ export async function initDepositV3(params: {
     inputToken,
     outputToken: _outputToken,
     sendTransactionFunc,
+    depositor,
+    inputAmount,
   } = params;
-  const depositor = owner.address;
-  const recipient = params.recipient || owner.address;
+  const recipient = params.recipient || depositor;
   // The 0 address is resolved automatically to the equivalent supported
   // token on the the destination chain. Any other input/output token
   // combination should be advertised by the Across API available-routes
   // endpoint.
   const outputToken = _outputToken || zeroAddress;
 
-  const inputAmount =
-    params.inputAmount || BigInt(suggestedFeeQuote.totalRelayFee.total);
   const outputAmount = params.outputAmount || inputAmount - BigInt(suggestedFeeQuote.totalRelayFee.total);
   const fillDeadlineBuffer = 18_000; // 5hrs
   const fillDeadline = Math.round(Date.now() / 1000) + fillDeadlineBuffer;

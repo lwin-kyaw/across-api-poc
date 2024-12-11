@@ -35,15 +35,19 @@ export default function Ecdsa() {
         amount,
         inputToken: WRAPPED_NATIVE_TOKEN_ADDRESS[ORIGIN_CHAIN_TESTNET.id],
         outputToken: WRAPPED_NATIVE_TOKEN_ADDRESS[DESTINATION_CHAIN_TESTNET.id],
+        recipient: account.address,
       });
+      console.log('suggestedFeeQuote:', suggestedFeeQuote);
 
       // init event subscriptions
       const { v3DepositEventPromise, filledV3RelayEventPromise } = initEventSubscriptions(suggestedFeeQuote);
 
       await initDepositV3({
+        depositor: account.address,
         suggestedFeeQuote,
         destinationChainId: DESTINATION_CHAIN_TESTNET.id,
         inputToken: WRAPPED_NATIVE_TOKEN_ADDRESS[ORIGIN_CHAIN_TESTNET.id],
+        inputAmount: amount,
         outputToken: WRAPPED_NATIVE_TOKEN_ADDRESS[DESTINATION_CHAIN_TESTNET.id],
         sendTransactionFunc: async (from: Address, to: Address, data: Hex) => {
           const accountClient = getSmartAccountClient(account, ORIGIN_CHAIN_TESTNET);
