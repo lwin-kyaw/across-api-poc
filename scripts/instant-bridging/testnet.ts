@@ -11,7 +11,7 @@ const originChainId = ORIGIN_CHAIN_TESTNET.id;
 const inputToken = WRAPPED_NATIVE_TOKEN_ADDRESS[originChainId];
 const destinationChainId = DESTINATION_CHAIN_TESTNET_2.id;
 const outputToken = WRAPPED_NATIVE_TOKEN_ADDRESS[destinationChainId];
-const amount = parseEther('0.00001');
+const amount = parseEther('0.001');
 
 (async () => {
   const originWalletClient = getWalletClient(ORIGIN_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC);
@@ -65,6 +65,7 @@ const amount = parseEther('0.00001');
     suggestedFeeQuote,
     destinationChainId,
     inputToken,
+    inputAmount: amount,
     outputToken,
     async requestTokenApprovalFunc(tokenAddress, spender, amount) {
       await approveTokenSpending(ORIGIN_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC, tokenAddress, spender, amount);

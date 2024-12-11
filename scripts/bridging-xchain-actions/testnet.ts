@@ -2,7 +2,7 @@ import { Abi, Address, parseEther } from "viem";
 import { erc20Abi, getContract, Hex } from "viem";
 import { ACROSS_API_BASE_URL_TESTNET, DESTINATION_CHAIN_TESTNET_2, ORIGIN_CHAIN_TESTNET_RPC, owner, WRAPPED_NATIVE_TOKEN_ADDRESS, DESTINATION_CHAIN_TESTNET_2_RPC, MULTICALL_HANDLER_ADDRESS, SPOKE_POOL_ADDRESS } from "../libs/config";
 import { ORIGIN_CHAIN_TESTNET } from "../libs/config";
-import { approveTokenSpending, createMessageForMulticallHandler, getSuggestedFeeQuote, getWalletClient, initDepositV3, subscribeToContractEvent } from "../libs/utils";
+import { approveTokenSpending, createMintTestTokenMsgForMulticallHandler, getSuggestedFeeQuote, getWalletClient, initDepositV3, subscribeToContractEvent } from "../libs/utils";
 import { spokePoolAbi } from "../abis/spokePoolAbi";
 import { FilledV3RelayEventArgs, V3FundsDepositedEventArgs } from "../libs/types";
 
@@ -12,11 +12,11 @@ const inputToken = WRAPPED_NATIVE_TOKEN_ADDRESS[originChainId];
 const destinationChainId = DESTINATION_CHAIN_TESTNET_2.id;
 const outputToken = WRAPPED_NATIVE_TOKEN_ADDRESS[destinationChainId];
 const receiverAddress = owner.address;
-const amount = parseEther('0.00001');
+const amount = parseEther('0.0001');
 
 
 (async () => {
-  const message = await createMessageForMulticallHandler(receiverAddress, amount, outputToken, 18) as Hex;
+  const message = createMintTestTokenMsgForMulticallHandler(receiverAddress);
   
   const originWalletClient = getWalletClient(ORIGIN_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC);
   const multicallHandlerAddress = MULTICALL_HANDLER_ADDRESS[originChainId];
@@ -74,6 +74,8 @@ const amount = parseEther('0.00001');
     inputToken,
     inputAmount: amount,
     outputToken,
+    // here, outputAmount should be the total relay fee and it will be used as fee to cover the action message execution on destination chain
+    outputAmount: amount - BigInt(suggestedFeeQuote.totalRelayFee.total),
     recipient: multicallHandlerAddress,
     message,
     async requestTokenApprovalFunc(tokenAddress, spender, amount) {

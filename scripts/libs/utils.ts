@@ -1,8 +1,13 @@
-import { Abi, Address, Chain, Client, createWalletClient, encodeAbiParameters, encodeFunctionData, erc20Abi, getContract, Hex, http, Log, parseAbi, parseUnits, publicActions, Transport, zeroAddress } from "viem";
+import { Abi, Address, Chain, Client, createPublicClient, createWalletClient, encodeAbiParameters, encodeFunctionData, erc20Abi, getContract, Hex, http, Log, parseAbi, parseUnits, PrivateKeyAccount, publicActions, Transport, zeroAddress } from "viem";
 import { DepositStatusData, SuggestedFeeQuote } from "./types";
-import { owner, W3P_TOKEN_ADDRESS } from "./config";
+import { owner, PIMILICO_BUNDLER_TRANSPORT_URL, W3P_TOKEN_ADDRESS, WRAPPED_NATIVE_TOKEN_ADDRESS } from "./config";
 import { waitForTransactionReceipt } from "viem/actions";
 import { PublicActions } from "viem";
+import { entryPoint07Address, SmartAccount } from "viem/account-abstraction";
+import { createSmartAccountClient } from "permissionless";
+import { createPimlicoClient } from "permissionless/clients/pimlico";
+import { toKernelSmartAccount } from "permissionless/accounts";
+
 
 export function getWalletClient(chain: Chain, rpc: string): ReturnType<typeof createWalletClient> & PublicActions {
   return createWalletClient({
@@ -10,6 +15,59 @@ export function getWalletClient(chain: Chain, rpc: string): ReturnType<typeof cr
     transport: http(rpc),
     chain,
   }).extend(publicActions);
+}
+
+export async function createEcdsaSmartAccount(chain: Chain, rpc: string): Promise<SmartAccount> {
+  const client = createPublicClient({
+    chain,
+    transport: http(rpc),
+  });
+
+  return toKernelSmartAccount({
+    client,
+    owners: [owner as PrivateKeyAccount],
+    entryPoint: {
+      address: entryPoint07Address,
+      version: "0.7",
+    },
+  });
+}
+
+export function getSmartAccountClient(account: SmartAccount, chain: Chain) {
+  const pimlicoPaymasterClient = createPimlicoClient({
+    transport: http(PIMILICO_BUNDLER_TRANSPORT_URL),
+    entryPoint: {
+      address: entryPoint07Address,
+      version: "0.7",
+    },
+  })
+
+  const accountClient = createSmartAccountClient({
+    account,
+    chain,
+    paymaster: pimlicoPaymasterClient,
+    bundlerTransport: http(PIMILICO_BUNDLER_TRANSPORT_URL),
+    userOperation: {
+      estimateFeesPerGas: async () => (await pimlicoPaymasterClient.getUserOperationGasPrice()).fast,
+    },
+  });
+
+  return accountClient;
+}
+
+export async function getWrappedNativeTokenBalance(
+  chain: Chain,
+  rpc: string,
+  account: SmartAccount
+) {
+  const walletClient = getWalletClient(chain, rpc);
+  const wethContract = getContract({
+    address: WRAPPED_NATIVE_TOKEN_ADDRESS[chain.id],
+    abi: erc20Abi,
+    client: walletClient,
+  });
+  const balance = await wethContract.read.balanceOf([account.address]);
+  return balance;
 }
 
 export async function wrapNativeToken(chain: Chain, rpc: string, wethContractAddress: Address, amount: bigint) {
@@ -79,6 +137,19 @@ export async function getSuggestedFeeQuote(params: {
   return await resp.json() as SuggestedFeeQuote;
 }
 
+export function createTokenApprovalCall(tokenAddress: Address, spender: Address, amount: bigint) {
+  return {
+    to: tokenAddress,
+    data: encodeFunctionData({
+      abi: parseAbi([
+        'function approve(address spender, uint256 amount)'
+      ]),
+      functionName: 'approve',
+      args: [spender, amount],
+    }),
+  };
+}
+
 export async function approveTokenSpending(chain: Chain, rpc: string, tokenAddress: Address, spender: Address, amount: bigint) {
   const walletClient = getWalletClient(chain, rpc);
 
@@ -88,12 +159,7 @@ export async function approveTokenSpending(chain: Chain, rpc: string, tokenAddre
 
   const txHash = await walletClient.sendTransaction({
     account: walletClient.account,
-    to: tokenAddress,
-    data: encodeFunctionData({
-      abi: erc20Abi,
-      functionName: 'approve',
-      args: [spender, amount],
-    }),
+    ...createTokenApprovalCall(tokenAddress, spender, amount),
     chain,
   });
 
@@ -107,13 +173,13 @@ export async function initDepositV3(params: {
   suggestedFeeQuote: SuggestedFeeQuote;
   destinationChainId: number;
   inputToken: Address;
-  inputAmount?: bigint;
+  inputAmount: bigint;
   outputToken?: Address;
   outputAmount?: bigint;
   recipient?: Address;
   message?: Hex;
 
-  requestTokenApprovalFunc: (tokenAddress: Address, spender: Address, amount: bigint) => Promise<void>;
+  requestTokenApprovalFunc?: (tokenAddress: Address, spender: Address, amount: bigint) => Promise<void>;
   sendTransactionFunc: (from: Address, to: Address, data: Hex) => Promise<string>;
 }) {
   const { suggestedFeeQuote, destinationChainId, inputToken, outputToken: _outputToken, requestTokenApprovalFunc, sendTransactionFunc } = params;
@@ -125,8 +191,8 @@ export async function initDepositV3(params: {
   // endpoint.
   const outputToken = _outputToken || zeroAddress;
 
-  const inputAmount = params.inputAmount || BigInt(suggestedFeeQuote.totalRelayFee.total);
-  const outputAmount = params.outputAmount || inputAmount;
+  const inputAmount = params.inputAmount;
+  const outputAmount = params.outputAmount || inputAmount - BigInt(suggestedFeeQuote.totalRelayFee.total);
   const fillDeadlineBuffer = 18_000; // 5hrs
   const fillDeadline = Math.round(Date.now() / 1000) + fillDeadlineBuffer;
 
@@ -140,7 +206,9 @@ export async function initDepositV3(params: {
   const message = params.message || "0x";
 
   // approve the spoke pool to spend the USDC
-  await requestTokenApprovalFunc(inputToken, suggestedFeeQuote.spokePoolAddress, inputAmount);
+  if (requestTokenApprovalFunc) {
+    await requestTokenApprovalFunc(inputToken, suggestedFeeQuote.spokePoolAddress, inputAmount);
+  }
 
   const depositV3FunctionData = encodeFunctionData({
     abi: parseAbi([
@@ -214,13 +282,11 @@ export async function poolDepositStatusFromAcrossApi(baseUrl: string, originChai
 }
 
 // create message which includes the set of actions to be executed on the destination chain via multicall handler
-export async function createMessageForMulticallHandler(
+export function createMintTestTokenMsgForMulticallHandler(
   recipient: Address,
-  amount: bigint,
-  outputToken: Address,
-  tokenDecimals?: number,
-) {
-  const mintCalldata = encodeFunctionData({
+  fallbackRecipient?: Address,
+): Hex {
+  const mintTestToken = encodeFunctionData({
     abi: parseAbi(['function mint(address to, uint256 amount)']),
     functionName: 'mint',
     args: [recipient, parseUnits('10', 6)],
@@ -250,11 +316,12 @@ export async function createMessageForMulticallHandler(
         [
           {
             target: W3P_TOKEN_ADDRESS,
-            callData: mintCalldata, 
+            callData: mintTestToken, 
             value: 0n
           }
         ],
-        '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
+        // fallback recipient will receive the leftover funds after the actions are executed
+        fallbackRecipient || recipient
       ]
     ]
   );

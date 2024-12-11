@@ -112,6 +112,19 @@ export async function wrapNativeToken(
   console.log("userOpReceipt:", userOpReceipt);
 }
 
+export function createTokenApprovalCall(tokenAddress: Address, spender: Address, amount: bigint) {
+  return {
+    to: tokenAddress,
+    data: encodeFunctionData({
+      abi: parseAbi([
+        'function approve(address spender, uint256 amount)'
+      ]),
+      functionName: 'approve',
+      args: [spender, amount],
+    }),
+  };
+}
+
 // get the suggested fee quote for the deposit from the Across API
 export async function getSuggestedFeeQuote(params: {
   acrossBaseUrl: string;
@@ -204,7 +217,7 @@ export async function initDepositV3(params: {
 
   const inputAmount =
     params.inputAmount || BigInt(suggestedFeeQuote.totalRelayFee.total);
-  const outputAmount = params.outputAmount || inputAmount;
+  const outputAmount = params.outputAmount || inputAmount - BigInt(suggestedFeeQuote.totalRelayFee.total);
   const fillDeadlineBuffer = 18_000; // 5hrs
   const fillDeadline = Math.round(Date.now() / 1000) + fillDeadlineBuffer;
 
@@ -313,7 +326,7 @@ export function initEventSubscriptions(suggestedFeeQuote: SuggestedFeeQuote) {
 }
 
 // create message which includes the set of actions to be executed on the destination chain via multicall handler
-export async function createMessageForMulticallHandler(recipient: Address) {
+export async function createMessageForMulticallHandler(recipient: Address, fallbackRecipient?: Address) {
   const mintCalldata = encodeFunctionData({
     abi: parseAbi(["function mint(address to, uint256 amount)"]),
     functionName: "mint",
@@ -348,7 +361,8 @@ export async function createMessageForMulticallHandler(recipient: Address) {
             value: 0n,
           },
         ],
-        "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        // fallback recipient will receive the leftover funds after the actions are executed
+        fallbackRecipient || recipient,
       ],
     ]
   );

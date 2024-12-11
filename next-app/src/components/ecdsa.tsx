@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { toKernelSmartAccount } from "permissionless/accounts";
 import { ACROSS_API_BASE_URL_TESTNET, DESTINATION_CHAIN_TESTNET, ORIGIN_CHAIN_TESTNET_RPC, owner, WRAPPED_NATIVE_TOKEN_ADDRESS } from "@/libs/config";
 import { ORIGIN_CHAIN_TESTNET } from "@/libs/config";
-import { getSmartAccountClient, getSuggestedFeeQuote, getWalletClient, getWrappedNativeTokenBalance, initDepositV3, initEventSubscriptions } from "@/libs/utils";
+import { createTokenApprovalCall, getSmartAccountClient, getSuggestedFeeQuote, getWalletClient, getWrappedNativeTokenBalance, initDepositV3, initEventSubscriptions } from "@/libs/utils";
 import { SmartAccount } from "viem/account-abstraction";
-import { Address, encodeFunctionData, Hex, parseAbi, parseEther } from "viem";
+import { Address, Hex, parseEther } from "viem";
 
 export default function Ecdsa() {
   const [loading, setLoading] = useState(false);
@@ -47,19 +47,9 @@ export default function Ecdsa() {
         outputToken: WRAPPED_NATIVE_TOKEN_ADDRESS[DESTINATION_CHAIN_TESTNET.id],
         sendTransactionFunc: async (from: Address, to: Address, data: Hex) => {
           const accountClient = getSmartAccountClient(account, ORIGIN_CHAIN_TESTNET);
-
           // create spending approval calldata
-          const tokenApprovalCall = {
-            to: WRAPPED_NATIVE_TOKEN_ADDRESS[ORIGIN_CHAIN_TESTNET.id],
-            data: encodeFunctionData({
-              abi: parseAbi([
-                'function approve(address spender, uint256 amount)'
-              ]),
-              functionName: 'approve',
-              args: [suggestedFeeQuote.spokePoolAddress, amount],
-            }),
-          };
-          const depositV3Call = { to, data};
+          const tokenApprovalCall = createTokenApprovalCall(WRAPPED_NATIVE_TOKEN_ADDRESS[ORIGIN_CHAIN_TESTNET.id], suggestedFeeQuote.spokePoolAddress, amount);
+          const depositV3Call = { to, data };
 
           return await accountClient.sendUserOperation({
               callData: await account.encodeCalls([tokenApprovalCall, depositV3Call]),

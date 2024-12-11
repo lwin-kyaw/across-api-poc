@@ -7,11 +7,17 @@ const PRIVATE_KEY = process.env.PRIVATE_KEY as Hex;
 if (!PRIVATE_KEY) {
   throw new Error('PRIVATE_KEY is not set');
 }
+const PIMLICO_API_KEY = process.env.PIMLICO_API_KEY as string;
+if (!PIMLICO_API_KEY) {
+  throw new Error('PIMLICO_API_KEY is not set');
+}
 
 export const owner: Account = privateKeyToAccount(PRIVATE_KEY);
 
 export const ACROSS_API_BASE_URL = 'https://app.across.to/api';
 export const ACROSS_API_BASE_URL_TESTNET = 'https://testnet.across.to/api';
+
+export const PIMILICO_BUNDLER_TRANSPORT_URL = `https://api.pimlico.io/v2/sepolia/rpc?apikey=${PIMLICO_API_KEY}`
 
 export const ORIGIN_CHAIN_MAINNET = mainnet;
 export const DESTINATION_CHAIN_MAINNET: Chain = optimism;

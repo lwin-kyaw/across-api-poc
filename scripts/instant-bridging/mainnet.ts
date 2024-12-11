@@ -9,10 +9,11 @@ const originChainId = ORIGIN_CHAIN_MAINNET.id;
 const destinationChainId = DESTINATION_CHAIN_MAINNET.id;
 const inputToken = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
 const inputTokenDecimals = 18;
+const amount = parseUnits('1', inputTokenDecimals);
 const outputToken = '0x4200000000000000000000000000000000000006';
 
 (async () => {
-  await wrapNativeToken(ORIGIN_CHAIN_MAINNET, ORIGIN_CHAIN_RPC, inputToken, parseUnits('1', inputTokenDecimals));
+  await wrapNativeToken(ORIGIN_CHAIN_MAINNET, ORIGIN_CHAIN_RPC, inputToken, amount);
 
   // Request a suggested fee quote for the deposit
   const suggestedFeeQuote = await getSuggestedFeeQuote({
@@ -43,6 +44,7 @@ const outputToken = '0x4200000000000000000000000000000000000006';
     suggestedFeeQuote,
     destinationChainId,
     inputToken,
+    inputAmount: amount,
     async requestTokenApprovalFunc(tokenAddress, spender, amount) {
       await approveTokenSpending(ORIGIN_CHAIN_MAINNET, ORIGIN_CHAIN_RPC, tokenAddress, spender, amount);
     },
